@@ -1,5 +1,5 @@
 /*      NEEDS WORK
-    Factor out the block deletion code so it can be called seperatley when appropriate. Work on tightening creation controls.
+    fix how rapidly the id
 */
 let blockColors;
 let blocks = [];
@@ -12,12 +12,12 @@ let video;
 let bodies = [];
 
 function preload() {
-  camFeed = ml5.bodyPose();
+  camFeed = ml5.bodyPose("MoveNet", { flipped: true });
 }
 
 function setup() {
   createCanvas(800, 600);
-  background(255);
+  background(0);
 
   video = createCapture(VIDEO);
   video.size(width, height);
@@ -51,7 +51,7 @@ function setup() {
 }
 
 function draw() {
-  background(255);
+  background(0);
   if (blocks.length != 0) {
     for (let c = 0; c < blocks.length; c++) {
       blocks[c].display();
@@ -76,24 +76,38 @@ function drawBodies() {
 
     // Draw a circle with the person's color (or a generic color if needed)
     fill(person.color);
+
     noStroke();
     circle(body.keypoints[0].x, body.keypoints[0].y, 30);
     circle(body.keypoints[10].x, body.keypoints[10].y, 20);
     circle(body.keypoints[9].x, body.keypoints[9].y, 20);
 
-    if (body.keypoints[9].x > body.keypoints[10].x - 100 && body.keypoints[9].x < body.keypoints[10].x + 100 && body.keypoints[9].y > body.keypoints[10].y - 100 && body.keypoints[9].y < body.keypoints[10].x + 100) {
-      drawBlocks(body.keypoints[9].x, body.keypoints[9].y, person.color);
-      console.log("Draw a block");
+    if (!person.drawMode) {
+      drawBlocks(body.keypoints[9].x, body.keypoints[9].y, color(0));
+    } else {
+    drawBlocks(body.keypoints[9].x, body.keypoints[9].y, person.color);
+    }
+
+    if (dist(body.keypoints[9].x, body.keypoints[9].y, body.keypoints[10].x,  body.keypoints[10].y) < 20) {
+      findPersonById(body.id).drawMode = !findPersonById(body.id).drawMode;
     }
   }
 }
 
 function bodyCheck(results) {
   bodies = results;
-
-  // Check for removed people (people who are no longer tracked)
   let trackedIds = bodies.map(body => body.id);
-  people = people.filter(person => trackedIds.includes(person.id));
+
+  // Update lastSeen timestamp for tracked people
+  for (let person of people) {
+    if (trackedIds.includes(person.id)) {
+      person.lastSeen = millis();  // Update last seen time
+    }
+  }
+
+  // Check for people who have been missing for too long (e.g., 2000ms)
+  let expirationTime = 4000;  // 2 seconds
+  people = people.filter(person => millis() - person.lastSeen < expirationTime);
 }
 
 function mousePressed() {
@@ -130,19 +144,18 @@ class Block {
     this.x = posX;
     this.y = posY;
     this.color = blockCol;
-    this.width = blockW;
-    this.height = blockH;
+    this.size = blockW;
   }
 
   display() {
     push();
     fill(this.color);
-    rect(this.x, this.y, this.width, this.height);
+    circle(this.x, this.y, this.size);
     pop();
   }
 
   overlaps(testX, testY, testSize) {
-    if (testX + testSize <= this.x + this.width && testX - testSize >= this.x && testY + testSize <= this.y + this.height && testY - testSize >= this.y) {
+    if (testX + testSize <= this.x + this.Size && testX - testSize >= this.x && testY + testSize <= this.y + this.size && testY - testSize >= this.y) {
       return true;
     }
     return false;
@@ -153,6 +166,8 @@ class Person {
   constructor(bodyID) {
     this.id = bodyID;
     this.color = random(blockColors);
+    this.drawMode = true;
+    this.lastSeen = millis();  // Track the last time they were seen
   }
 }
 

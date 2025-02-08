@@ -66,30 +66,53 @@ function drawBodies() {
   for (let i = 0; i < bodies.length; i++) {
     let body = bodies[i];
 
-    // Track and assign colors based on ID
     let person = findPersonById(body.id);
     if (!person) {
-      // Add a new person if not found
       person = new Person(body.id);
       people.push(person);
     }
 
-    // Draw a circle with the person's color (or a generic color if needed)
-    fill(person.color);
+    let col = person.color;
+    stroke(col);
+    strokeWeight(5);
+    //noFill();
 
-    noStroke();
-    circle(body.keypoints[0].x, body.keypoints[0].y, 30);
-    circle(body.keypoints[10].x, body.keypoints[10].y, 20);
-    circle(body.keypoints[9].x, body.keypoints[9].y, 20);
+    // Draw head
+    let head = body.keypoints[0];
+    fill(col);
+    circle(head.x, head.y + 70, 180);
 
-    if (!person.drawMode) {
-      drawBlocks(body.keypoints[9].x, body.keypoints[9].y, color(0));
-    } else {
-    drawBlocks(body.keypoints[9].x, body.keypoints[9].y, person.color);
+    // Draw arms
+    strokeWeight(25);
+    line(body.keypoints[5].x, body.keypoints[5].y, body.keypoints[7].x, body.keypoints[7].y); // Left arm
+    line(body.keypoints[7].x, body.keypoints[7].y, body.keypoints[9].x, body.keypoints[9].y);
+    line(body.keypoints[6].x, body.keypoints[6].y, body.keypoints[8].x, body.keypoints[8].y); // Right arm
+    line(body.keypoints[8].x, body.keypoints[8].y, body.keypoints[10].x, body.keypoints[10].y);
+
+    // Draw body
+    rect(body.keypoints[5].x, body.keypoints[5].y, (body.keypoints[6].x - body.keypoints[5].x), (body.keypoints[11].y - body.keypoints[5].y));
+    /*
+    line(body.keypoints[5].x, body.keypoints[5].y, body.keypoints[6].x, body.keypoints[6].y); // Shoulders
+    line(body.keypoints[5].x, body.keypoints[5].y, body.keypoints[11].x, body.keypoints[11].y); // Left torso
+    line(body.keypoints[6].x, body.keypoints[6].y, body.keypoints[12].x, body.keypoints[12].y); // Right torso
+    line(body.keypoints[11].x, body.keypoints[11].y, body.keypoints[12].x, body.keypoints[12].y); // Hips
+    
+    // Draw legs
+    line(body.keypoints[11].x, body.keypoints[11].y, body.keypoints[13].x, body.keypoints[13].y); // Left leg
+    line(body.keypoints[13].x, body.keypoints[13].y, body.keypoints[15].x, body.keypoints[15].y);
+    line(body.keypoints[12].x, body.keypoints[12].y, body.keypoints[14].x, body.keypoints[14].y); // Right leg
+    line(body.keypoints[14].x, body.keypoints[14].y, body.keypoints[16].x, body.keypoints[16].y);
+    */
+    // Toggle draw mode with both hands close together
+    if (dist(body.keypoints[9].x, body.keypoints[9].y, body.keypoints[10].x, body.keypoints[10].y) < 20) {
+      person.drawMode = !person.drawMode;
     }
 
-    if (dist(body.keypoints[9].x, body.keypoints[9].y, body.keypoints[10].x,  body.keypoints[10].y) < 20) {
-      findPersonById(body.id).drawMode = !findPersonById(body.id).drawMode;
+    // Apply drawing mode (paint blocks or erase)
+    if (person.drawMode) {
+      drawBlocks(body.keypoints[9].x, body.keypoints[9].y, col);
+    } else {
+      eraseBlocks(body.keypoints[9].x, body.keypoints[9].y);
     }
   }
 }
@@ -112,35 +135,41 @@ function bodyCheck(results) {
 
 function mousePressed() {
   let randCol = random(blockColors);
-  drawBlocks(mouseX, mouseY, randCol);
+  if (mouseButton === LEFT) {
+    drawBlocks(mouseX, mouseY, randCol);
+  }
+  else {
+    console.log("Click");
+    eraseBlocks(mouseX, mouseY);
+  }
 }
 
 function drawBlocks(xLoc, yLoc, blColor) {
   let blockDetect = false;
-
   for (let i = 0; i < blocks.length; i++) {
-    blockDetect = blocks[i].overlaps(xLoc, yLoc, 10);
-    if (blockDetect) {
-      if (mouseButton === RIGHT) {
-        blocks.splice(i, 1);
-      }
-      break;
-    }
+    blockDetect = blocks[i].overlaps(xLoc, yLoc, 5);
+    if (blockDetect) return; // Don't add a new block if one is already there
   }
-
-  if (!blockDetect) {
-    blocks.push(new Block(xLoc, yLoc, blColor, 25, 25));
-  }
+  blocks.push(new Block(xLoc, yLoc, blColor, 25));
 }
 
 function mouseDragged() {
   let randCol = random(blockColors);
-  drawBlocks(mouseX, mouseY, randCol);
+  //drawBlocks(mouseX, mouseY, randCol);
+}
+
+function eraseBlocks(xLoc, yLoc) {
+  for (let i = 0; i < blocks.length; i++) {
+    if (blocks[i].overlaps(xLoc, yLoc, 5)) {
+      blocks.splice(i, 1); // Remove the block
+      console.log("block deleted");
+    }
+  }
 }
 
 
 class Block {
-  constructor(posX, posY, blockCol, blockW, blockH) {
+  constructor(posX, posY, blockCol, blockW) {
     this.x = posX;
     this.y = posY;
     this.color = blockCol;
@@ -150,15 +179,14 @@ class Block {
   display() {
     push();
     fill(this.color);
-    circle(this.x, this.y, this.size);
+    noStroke();
+    rect(this.x, this.y, this.size, this.size);
     pop();
   }
 
   overlaps(testX, testY, testSize) {
-    if (testX + testSize <= this.x + this.Size && testX - testSize >= this.x && testY + testSize <= this.y + this.size && testY - testSize >= this.y) {
-      return true;
-    }
-    return false;
+    let d = dist(this.x, this.y, testX, testY);
+    return d < (this.size / 2 + testSize / 2); // Proper circular collision detection
   }
 }
 

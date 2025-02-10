@@ -140,15 +140,21 @@ function bodyCheck(results) {
   people = people.filter(person => millis() - person.lastSeen < 4000);
 }
 
-// Block-based drawing
 function drawBlock(x, y, baseColor) {
   let gridX = floor(x / blockSize) * blockSize;
   let gridY = floor(y / blockSize) * blockSize;
 
-  // Check if block already exists
-  let existingBlock = blocks.find(b => b.x === gridX && b.y === gridY);
+  // Check if a block of the SAME color exists at this position
+  let existingBlock = blocks.find(b => 
+    b.x === gridX && b.y === gridY && 
+    red(b.color) === red(baseColor) &&
+    green(b.color) === green(baseColor) &&
+    blue(b.color) === blue(baseColor)
+  );
+
+  // Only place block if there is NO existing block of the same color
   if (!existingBlock) {
-    let newColor = color(red(baseColor), green(baseColor), blue(baseColor), 255); // Full opacity when placed
+    let newColor = color(red(baseColor), green(baseColor), blue(baseColor), 255); // Full opacity
     blocks.push(new Block(gridX, gridY, newColor));
   }
 }

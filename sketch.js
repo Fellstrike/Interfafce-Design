@@ -17,7 +17,7 @@ function preload() {
 }
 
 function setup() {
-  createCanvas(800, 600);
+  createCanvas(windowWidth, windowHeight);
   background(0);
 
   video = createCapture(VIDEO);
@@ -34,7 +34,7 @@ function setup() {
     color(0, 255, 128), color(128, 255, 0), color(128, 255, 128)
   ];
 
-  frameRate(60);
+  //frameRate(60);
 }
 
 function draw() {
@@ -54,6 +54,7 @@ function drawBodies() {
   for (let body of bodies) {
     let person = findPersonById(body.id);
     if (!person) {
+      //PLAY NEW PERSON SOUND
       person = new Person(body.id);
       people.push(person);
     }
@@ -73,7 +74,8 @@ function drawBodies() {
     fill(col);
 
     // Toggle draw/erase mode when raising right hand above head
-    if (rightWrist.y < head.y && person.toggleCooldown <= 0) {
+    if (rightWrist.y <= head.y - 15 && person.toggleCooldown <= 0) {
+      //Play Mode Change Sound
       person.drawMode = !person.drawMode;
       console.log(person.drawMode ? "Draw Mode ON" : "Erase Mode ON");
       person.toggleCooldown = 60;
@@ -86,7 +88,7 @@ function drawBodies() {
 
     // Only paint/erase if hand is moving smoothly
     let handSpeed = dist(hand.x, hand.y, person.prevX, person.prevY);
-    let steadyThreshold = 2;
+    let steadyThreshold = 2.5;
 
     if (handSpeed > steadyThreshold) {
       if (person.drawMode) {
@@ -108,20 +110,26 @@ function drawHandStickFigure(x, y, isDrawMode, baseColor) {
   fill(isDrawMode ? baseColor : color(255, 255, 255, 125));  // Transparent in erase mode
 
   // Head
-  ellipse(x, y - 30, 30, 30);
+  ellipse(x, y, 60, 60);
 
   // Body
-  line(x, y - 20, x, y + 20);
+  line(x, y + 30, x, y + 80);
 
-  // Arms
-  line(x - 14, y, x + 14, y);
 
-  // Legs (different style for draw/erase mode)
+
+  // Arms and Legs (change Position between modes)
   if (isDrawMode) {
-    line(x, y + 20, x - 7, y + 40);
-    line(x, y + 20, x + 7, y + 40);
+
+      // Arms
+    line(x - 38, y + 60, x, y + 40); //left arm
+    line(x, y + 40, x + 38, y + 60); //right arm
+    line(x, y + 80, x - 14, y + 120); //left leg
+    line(x, y + 80, x + 14, y + 120); //right leg
   } else {
-    line(x, y + 20, x, y + 40);
+      // Arms
+    line(x - 38, y + 60, x, y + 40); //left
+    line(x, y + 40, x + 38, y + 10); //right (raised arm)
+    line(x, y + 80, x, y + 120); //both legs (both legs together)
   }
 
   pop();

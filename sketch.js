@@ -1,7 +1,7 @@
 let blockColors;
 let blocks = [];
 let people = [];
-let maxPeople = 4;
+let maxPeople = 8;
 
 let camFeed;
 let video;
@@ -10,10 +10,28 @@ let bodies = [];
 let smoothingFactor = 0.15;
 let smoothedKeypoints = {};
 let blockSize = 12;
-let maxHP = 3;  // Blocks start at full HP (3) and fade out
+let maxHP = 10;  // Blocks start at full HP (3) and fade out
+
+let lastMouse = true;
 
 function preload() {
+  let savedBlocks = getItem("savedBlocks");
+  if (savedBlocks != null) {
+    loadBlocks(savedBlocks);
+  }
   camFeed = ml5.bodyPose("MoveNet", { flipped: true });
+}
+
+function loadBlocks(savedBlocks) {
+  for (let blks of savedBlocks) {
+    let x = blks.x;
+    let y = blks.y;
+    let clr = color(red(blks.color), green(blks.color), blue(blks.color), alpha(blks.color));
+    blocks.push(new Block(x, y, clr));
+   
+   let l = blocks.length - 1;
+   blocks[l].hp = blks.hp;
+  }
 }
 
 function setup() {
@@ -43,18 +61,20 @@ function draw() {
   // Draw stored blocks
   for (let b of blocks) {
     b.display();
+    b.tempInvul = min(0, b.tempInvul - 1);
   }
 
   if (bodies.length > 0) {
     drawBodies();
   }
+  //for testing
+  drawHandStickFigure(mouseX, mouseY, lastMouse, blockColors[2]);
 }
 
 function drawBodies() {
   for (let body of bodies) {
     let person = findPersonById(body.id);
     if (!person) {
-      //PLAY NEW PERSON SOUND
       person = new Person(body.id);
       people.push(person);
     }
@@ -67,7 +87,7 @@ function drawBodies() {
 
     smoothBodyPoints(body);
 
-    let head = smoothedKeypoints[body.id][0];
+    let head = smoothedKeypoints[body.id][0];  // Head position
     let leftWrist = smoothedKeypoints[body.id][9];
     let rightWrist = smoothedKeypoints[body.id][10];
 
@@ -75,9 +95,7 @@ function drawBodies() {
 
     // Toggle draw/erase mode when raising right hand above head
     if (rightWrist.y <= head.y - 15 && person.toggleCooldown <= 0) {
-      //Play Mode Change Sound
       person.drawMode = !person.drawMode;
-      console.log(person.drawMode ? "Draw Mode ON" : "Erase Mode ON");
       person.toggleCooldown = 60;
     }
 
@@ -86,20 +104,79 @@ function drawBodies() {
     // Draw stick figure at hand position
     drawHandStickFigure(hand.x, hand.y, person.drawMode, col);
 
-    // Only paint/erase if hand is moving smoothly
     let handSpeed = dist(hand.x, hand.y, person.prevX, person.prevY);
     let steadyThreshold = 2.5;
 
     if (handSpeed > steadyThreshold) {
       if (person.drawMode) {
-        drawBlock(hand.x, hand.y, col);
+        sprayBlocks(head.x, head.y, col);  // Create spray effect in head area
       } else {
-        eraseBlock(hand.x, hand.y);
+        eraseInsideHead(head.x, head.y, 40);  // Gradually erase blocks inside head
       }
     }
 
     person.prevX = hand.x;
     person.prevY = hand.y;
+  }
+}
+
+// **Spray random blocks inside the head area**
+function sprayBlocks(x, y, baseColor) {
+  let numBlocks = random(2, 15); // Number of blocks per spray
+  let sprayRadius = 35; // Spray area size
+
+  for (let i = 0; i < numBlocks; i++) {
+    let angle = random(TWO_PI);
+    let radius = random(sprayRadius);
+    let blockX = x + cos(angle) * radius;
+    let blockY = y + sin(angle) * radius;
+
+    let gridX = floor(blockX / blockSize) * blockSize;
+    let gridY = floor(blockY / blockSize) * blockSize;
+
+    let existingBlock = blocks.find(b => 
+      b.x === gridX && b.y === gridY && 
+      red(b.color) === red(baseColor) &&
+      green(b.color) === green(baseColor) &&
+      blue(b.color) === blue(baseColor)
+    );
+
+    if (!existingBlock) {
+      let newColor = color(red(baseColor), green(baseColor), blue(baseColor), 255);
+      blocks.push(new Block(gridX, gridY, newColor));
+      storeItem("savedBlocks", blocks);
+    }
+  }
+}
+
+// **Gradually erase blocks inside the head area**
+function eraseInsideHead(x, y, radius) {
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    let b = blocks[i];
+    let d = dist(b.x, b.y, x, y);
+    
+    if (d < radius&& b.tempInvul <= 0) {
+      b.hp--;  // Reduce HP
+      let alphaVal = map(b.hp, 0, maxHP, 0, 255); // Fade effect
+      b.color = color(red(b.color), green(b.color), blue(b.color), alphaVal);
+      b.tempInvul = 60;
+      if (b.hp <= 0) {
+        blocks.splice(i, 1);  // Remove when fully faded
+        storeItem("savedBlocks", blocks);
+      }
+    }
+  }
+}
+
+//For Testing Only
+function mouseDragged() {
+  //console.log("Clicky At " + mouseX + " , " + mouseY);
+  if (mouseButton === LEFT) {
+    sprayBlocks(mouseX, mouseY, blockColors[2]);
+    lastMouse = true;
+  } else if (mouseButton === CENTER) {
+    eraseInsideHead(mouseX, mouseY, 40);
+    lastMouse = false;
   }
 }
 
@@ -149,32 +226,42 @@ function bodyCheck(results) {
 }
 
 function drawBlock(x, y, baseColor) {
-  let gridX = floor(x / blockSize) * blockSize;
-  let gridY = floor(y / blockSize) * blockSize;
+  let gridX;
+  let gridY;
+  let randomPaint = [int(random(30)), int(random(30)), int(random(30)), int(random(30)), int(random(30)), int(random(30))];
 
-  // Check if a block of the SAME color exists at this position
-  let existingBlock = blocks.find(b => 
-    b.x === gridX && b.y === gridY && 
-    red(b.color) === red(baseColor) &&
-    green(b.color) === green(baseColor) &&
-    blue(b.color) === blue(baseColor)
-  );
+  for (i = 0; i < 30; i++) {
+    gridX = floor((x - 15 + i) / blockSize) * blockSize;
+    gridY = floor((y - 15 + i)/ blockSize) * blockSize;
 
-  // Only place block if there is NO existing block of the same color
-  if (!existingBlock) {
-    let newColor = color(red(baseColor), green(baseColor), blue(baseColor), 255); // Full opacity
-    blocks.push(new Block(gridX, gridY, newColor));
+    // Check if a block of the SAME color exists at this position
+    let existingBlock = blocks.find(b => 
+      b.x === gridX && b.y === gridY && 
+      red(b.color) === red(baseColor) &&
+      green(b.color) === green(baseColor) &&
+      blue(b.color) === blue(baseColor)
+    );
+    // Only place block if there is NO existing block of the same color
+    if (!existingBlock && randomPaint.includes(i)) {
+      //console.log("Block should be here. Block #" + i);
+      let newColor = color(red(baseColor), green(baseColor), blue(baseColor), 255); // Full opacity
+      blocks.push(new Block(gridX, gridY, newColor));
+    }
   }
 }
 
 // **Smooth block fading when erasing**
 function eraseBlock(x, y) {
-  let gridX = floor(x / blockSize) * blockSize;
-  let gridY = floor(y / blockSize) * blockSize;
+  let gridXmax = floor((x + 15)/ blockSize) * blockSize;
+  let gridYmin = floor((y - 15)/ blockSize) * blockSize;
+  let gridXmin = floor((x - 15) / blockSize) * blockSize;
+  let gridYmax = floor((y + 15) / blockSize) * blockSize;
 
   for (let i = blocks.length - 1; i >= 0; i--) {
     let b = blocks[i];
-    if (b.x === gridX && b.y === gridY) {
+
+    //Make it so it deletes all blocks within 30 of the circle.
+    if (b.x <  gridXmax && b.x > gridXmin && b.y < gridYmax && b.x > gridYmin) {
       b.hp--;  // Reduce HP instead of instantly deleting
       let alphaVal = map(b.hp, 0, maxHP, 0, 255); // Fade effect
       b.color = color(red(b.color), green(b.color), blue(b.color), alphaVal); 
@@ -182,7 +269,7 @@ function eraseBlock(x, y) {
       if (b.hp <= 0) {
         blocks.splice(i, 1);  // Remove only when HP runs out
       }
-      break; // Stop checking after finding one
+      //break; // Stop checking after finding one
     }
   }
 }
@@ -193,6 +280,7 @@ class Block {
     this.y = y;
     this.color = color;
     this.hp = maxHP;  // Blocks start at full HP (3)
+    this.tempInvul = 0;
   }
 
   display() {

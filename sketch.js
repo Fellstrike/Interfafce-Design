@@ -1,14 +1,18 @@
+// FIX SAVE/LOAD Comment it out for testing of other features.
+
 let blockColors;
 let blocks = [];
 let people = [];
-let maxPeople = 8;
+let maxPeople = 15;
 
 let camFeed;
 let video;
 let bodies = [];
 
+let hands = [];
+
 let smoothingFactor = 0.15;
-let smoothedKeypoints = {};
+
 let blockSize = 12;
 let maxHP = 10;  // Blocks start at full HP (3) and fade out
 
@@ -19,7 +23,7 @@ function preload() {
   if (savedBlocks != null) {
     loadBlocks(savedBlocks);
   }
-  camFeed = ml5.bodyPose("MoveNet", { flipped: true });
+  camFeed = ml5.bodyPose("BlazePose", { flipped: true });
 }
 
 function loadBlocks(savedBlocks) {
@@ -75,7 +79,7 @@ function drawBodies() {
   for (let body of bodies) {
     let person = findPersonById(body.id);
     if (!person) {
-      person = new Person(body.id);
+      person = new Person(body);
       people.push(person);
     }
 
@@ -87,36 +91,46 @@ function drawBodies() {
 
     smoothBodyPoints(body);
 
-    let head = smoothedKeypoints[body.id][0];  // Head position
-    let leftWrist = smoothedKeypoints[body.id][9];
-    let rightWrist = smoothedKeypoints[body.id][10];
+    person.head = body[0];  // Head position
+    
+    //left hand and finger positions
+    person.leftThumb = body[21]; 
+    person.leftIndex = body[19];
+    person.leftPinkie = body[17];
+    person.leftWrist = body[15];
+    
+    //right hand and finger positions
+    person.rightThumb = body[22];
+    person.rightIndex =  body[20];
+    person.rightPinkie =  body[18];
+    person.rightWrist = body[16];
 
     fill(col);
 
     // Toggle draw/erase mode when raising right hand above head
-    if (rightWrist.y <= head.y - 15 && person.toggleCooldown <= 0) {
+    if (person.rightWrist.y <= person.head.y - 15 && person.toggleCooldown <= 0) {
       person.drawMode = !person.drawMode;
       person.toggleCooldown = 60;
     }
 
-    let hand = leftWrist;  // Use left hand for drawing
+    let cursor = person.head;  // Use left hand for drawing
 
     // Draw stick figure at hand position
-    drawHandStickFigure(hand.x, hand.y, person.drawMode, col);
+    drawHandStickFigure(cursor.x, cursor.y, person.drawMode, col);
 
-    let handSpeed = dist(hand.x, hand.y, person.prevX, person.prevY);
+    let handSpeed = dist(cursor.x, cursor.y, person.prevX, person.prevY);
     let steadyThreshold = 2.5;
 
     if (handSpeed > steadyThreshold) {
       if (person.drawMode) {
-        sprayBlocks(head.x, head.y, col);  // Create spray effect in head area
+        sprayBlocks(person.head.x, person.head.y, col);  // Create spray effect in head area
       } else {
-        eraseInsideHead(head.x, head.y, 40);  // Gradually erase blocks inside head
+        eraseInsideHead(person.head.x, person.head.y, 40);  // Gradually erase blocks inside head
       }
     }
 
-    person.prevX = hand.x;
-    person.prevY = hand.y;
+    person.prevX = cursor.x;
+    person.prevY = cursor.y;
   }
 }
 
@@ -222,7 +236,12 @@ function bodyCheck(results) {
     }
   }
 
-  people = people.filter(person => millis() - person.lastSeen < 4000);
+  for (p = 0; p < people.length; p++) {
+    if (millis() - people[p].lastSeen > 3000) {
+      blockColors.push(people[p].color);
+      people.splice(p, 1);
+    }
+  }
 }
 
 function drawBlock(x, y, baseColor) {
@@ -291,26 +310,35 @@ class Block {
 }
 
 class Person {
-  constructor(bodyID) {
-    this.id = bodyID;
+  constructor(body) {
+    this.id = body.id;
+    selCol = random(blockColors);
+    for (let i = 0; i < blockColors.length; i++) {
+      if (selCol == blockColors[i]) {
+        blockColors.splice(i, 1);
+        break;
+      }
+    }
     this.color = random(blockColors);
     this.drawMode = true;
     this.lastSeen = millis();
     this.prevX = 0;
     this.prevY = 0;
     this.toggleCooldown = 60;
-  }
-}
 
-// Smooth keypoints using EMA (low-pass filter)
-function smoothBodyPoints(body) {
-  if (!smoothedKeypoints[body.id]) {
-    smoothedKeypoints[body.id] = body.keypoints.map(kp => ({ x: kp.x, y: kp.y }));
-  } else {
-    for (let i = 0; i < body.keypoints.length; i++) {
-      smoothedKeypoints[body.id][i].x = lerp(smoothedKeypoints[body.id][i].x, body.keypoints[i].x, smoothingFactor);
-      smoothedKeypoints[body.id][i].y = lerp(smoothedKeypoints[body.id][i].y, body.keypoints[i].y, smoothingFactor);
-    }
+    this.head = body[0];  // Head position
+    
+    //left hand and finger positions
+    this.leftThumb = body[21]; 
+    this.leftIndex = body[19];
+    this.leftPinkie = body[17];
+    this.leftWrist = body[15];
+    
+    //right hand and finger positions
+    this.rightThumb = body[22];
+    this.rightIndex = body[20];
+    this.rightPinkie = body[18];
+    this.rightWrist = body[16];
   }
 }
 

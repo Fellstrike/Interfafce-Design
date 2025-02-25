@@ -1,25 +1,28 @@
 let blockColors;
 let blocks = [];
 let people = [];
-let maxPeople = 8;
+let maxPeople = 4;
 
 let camFeed;
 let video;
 let bodies = [];
 
-let smoothingFactor = 0.15;
+let smoothingFactor = 0.05;
 let smoothedKeypoints = {};
 let blockSize = 12;
-let maxHP = 10;  // Blocks start at full HP (3) and fade out
+let maxHP = 5;  // Blocks start at full HP (3) and fade out
 
 let lastMouse = true;
+
+let usedColors = [];
+let colorIndex = 0;
 
 function preload() {
   /*let savedBlocks = getItem("savedBlocks");
   if (savedBlocks != null) {
     loadBlocks(savedBlocks);
   }*/
-  camFeed = ml5.bodyPose("BlazeNet", { flipped: true });
+  camFeed = ml5.bodyPose("BlazePose", { flipped: true });
 }
 
 function loadBlocks(savedBlocks) {
@@ -51,8 +54,6 @@ function setup() {
     color(255, 128, 0), color(255, 0, 128), color(255, 128, 128),
     color(0, 255, 128), color(128, 255, 0), color(128, 255, 128)
   ];
-
-  //frameRate(60);
 }
 
 function draw() {
@@ -88,42 +89,70 @@ function drawBodies() {
     smoothBodyPoints(body);
 
     let head = smoothedKeypoints[body.id][0];  // Head position
-    let leftWrist = smoothedKeypoints[body.id][9];
-    let rightWrist = smoothedKeypoints[body.id][10];
+    let leftWrist = smoothedKeypoints[body.id][15];
+    let rightWrist = smoothedKeypoints[body.id][16];
+    let leftThumb = smoothedKeypoints[body.id][17];
+    let rightThumb = smoothedKeypoints[body.id][18];
+    let leftPinkie = smoothedKeypoints[body.id][19];
+    let rightPinkie = smoothedKeypoints[body.id][20];
+    let leftIndex = smoothedKeypoints[body.id][21];
+    let rightIndex = smoothedKeypoints[body.id][22];
 
     fill(col);
 
-    // Toggle draw/erase mode when raising right hand above head
-    if (rightWrist.y <= head.y - 15 && person.toggleCooldown <= 0) {
-      person.drawMode = !person.drawMode;
-      person.toggleCooldown = 60;
+    // Determine main hand based on initial movement
+    if (!person.mainHand) {
+      let leftSpeed = dist(leftWrist.x, leftWrist.y, person.prevLeftX, person.prevLeftY);
+      let rightSpeed = dist(rightWrist.x, rightWrist.y, person.prevRightX, person.prevRightY);
+      person.mainHand = leftSpeed > rightSpeed ? 'left' : 'right';
     }
 
-    let hand = leftWrist;  // Use left hand for drawing
+    let hand = person.mainHand === 'left' ? leftWrist : rightWrist;
+    let thumb = person.mainHand === 'left' ? leftThumb : rightThumb;
+    let pinkie = person.mainHand === 'left' ? leftPinkie : rightPinkie;
+    let index = person.mainHand === 'left' ? leftIndex : rightIndex;
+
+    console.log("Hand: " + hand.x + " , " + hand.y);
+    console.log("Thumb: " + thumb.x + " , " + thumb.y);
+    console.log("Pinkie: " + pinkie.x + " , " + pinkie.y);
+    console.log("Index: " + index.x + " , " + index.y);
+
+    // Detect hand state (fist or open) to toggle draw/erase mode
+    if (isHandInFist(hand, thumb, pinkie, index) && person.toggleCooldown <= 0) {
+      person.drawMode = true;
+      person.toggleCooldown = 30;
+    } else if (!isHandInFist(hand, thumb, pinkie, index) && person.toggleCooldown <= 0) {
+      person.drawMode = false;
+      person.toggleCooldown = 30;
+    }
 
     // Draw stick figure at hand position
     drawHandStickFigure(hand.x, hand.y, person.drawMode, col);
 
     let handSpeed = dist(hand.x, hand.y, person.prevX, person.prevY);
-    let steadyThreshold = 2.5;
+    let steadyThreshold = 1.0; // Lowered threshold for more responsive painting
 
     if (handSpeed > steadyThreshold) {
       if (person.drawMode) {
-        sprayBlocks(head.x, head.y, col);  // Create spray effect in head area
+        sprayBlocks(hand.x, hand.y, col);  // Create spray effect at hand position
       } else {
-        eraseInsideHead(head.x, head.y, 40);  // Gradually erase blocks inside head
+        eraseInsideHead(hand.x, hand.y, 40);  // Gradually erase blocks at hand position
       }
     }
 
     person.prevX = hand.x;
     person.prevY = hand.y;
+    person.prevLeftX = leftWrist.x;
+    person.prevLeftY = leftWrist.y;
+    person.prevRightX = rightWrist.x;
+    person.prevRightY = rightWrist.y;
   }
 }
 
 // **Spray random blocks inside the head area**
 function sprayBlocks(x, y, baseColor) {
-  let numBlocks = random(2, 15); // Number of blocks per spray
-  let sprayRadius = 35; // Spray area size
+  let numBlocks = 10; // Number of blocks per spray
+  let sprayRadius = 30; // Spray area size
 
   for (let i = 0; i < numBlocks; i++) {
     let angle = random(TWO_PI);
@@ -144,7 +173,6 @@ function sprayBlocks(x, y, baseColor) {
     if (!existingBlock) {
       let newColor = color(red(baseColor), green(baseColor), blue(baseColor), 255);
       blocks.push(new Block(gridX, gridY, newColor));
-      storeItem("savedBlocks", blocks);
     }
   }
 }
@@ -155,14 +183,13 @@ function eraseInsideHead(x, y, radius) {
     let b = blocks[i];
     let d = dist(b.x, b.y, x, y);
     
-    if (d < radius&& b.tempInvul <= 0) {
+    if (d < radius) {
       b.hp--;  // Reduce HP
       let alphaVal = map(b.hp, 0, maxHP, 0, 255); // Fade effect
       b.color = color(red(b.color), green(b.color), blue(b.color), alphaVal);
-      b.tempInvul = 60;
+
       if (b.hp <= 0) {
         blocks.splice(i, 1);  // Remove when fully faded
-        storeItem("savedBlocks", blocks);
       }
     }
   }
@@ -218,60 +245,20 @@ function bodyCheck(results) {
   bodies = results;
   let trackedIds = bodies.map(body => body.id);
 
+  // Update last seen time for tracked people
   for (let person of people) {
     if (trackedIds.includes(person.id)) {
       person.lastSeen = millis();
     }
   }
 
-  people = people.filter(person => millis() - person.lastSeen < 4000);
-}
+  // Remove people who haven't been seen for a longer duration
+  people = people.filter(person => millis() - person.lastSeen < 8000); // Increased timeout to 8 seconds
 
-function drawBlock(x, y, baseColor) {
-  let gridX;
-  let gridY;
-  let randomPaint = [int(random(30)), int(random(30)), int(random(30)), int(random(30)), int(random(30)), int(random(30))];
-
-  for (i = 0; i < 30; i++) {
-    gridX = floor((x - 15 + i) / blockSize) * blockSize;
-    gridY = floor((y - 15 + i)/ blockSize) * blockSize;
-
-    // Check if a block of the SAME color exists at this position
-    let existingBlock = blocks.find(b => 
-      b.x === gridX && b.y === gridY && 
-      red(b.color) === red(baseColor) &&
-      green(b.color) === green(baseColor) &&
-      blue(b.color) === blue(baseColor)
-    );
-    // Only place block if there is NO existing block of the same color
-    if (!existingBlock && randomPaint.includes(i)) {
-      //console.log("Block should be here. Block #" + i);
-      let newColor = color(red(baseColor), green(baseColor), blue(baseColor), 255); // Full opacity
-      blocks.push(new Block(gridX, gridY, newColor));
-    }
-  }
-}
-
-// **Smooth block fading when erasing**
-function eraseBlock(x, y) {
-  let gridXmax = floor((x + 15)/ blockSize) * blockSize;
-  let gridYmin = floor((y - 15)/ blockSize) * blockSize;
-  let gridXmin = floor((x - 15) / blockSize) * blockSize;
-  let gridYmax = floor((y + 15) / blockSize) * blockSize;
-
-  for (let i = blocks.length - 1; i >= 0; i--) {
-    let b = blocks[i];
-
-    //Make it so it deletes all blocks within 30 of the circle.
-    if (b.x <  gridXmax && b.x > gridXmin && b.y < gridYmax && b.x > gridYmin) {
-      b.hp--;  // Reduce HP instead of instantly deleting
-      let alphaVal = map(b.hp, 0, maxHP, 0, 255); // Fade effect
-      b.color = color(red(b.color), green(b.color), blue(b.color), alphaVal); 
-
-      if (b.hp <= 0) {
-        blocks.splice(i, 1);  // Remove only when HP runs out
-      }
-      //break; // Stop checking after finding one
+  // Add new people
+  for (let body of bodies) {
+    if (!findPersonById(body.id)) {
+      people.push(new Person(body.id));
     }
   }
 }
@@ -295,12 +282,34 @@ class Block {
 class Person {
   constructor(bodyID) {
     this.id = bodyID;
-    this.color = random(blockColors);
+    this.color = this.assignUniqueColor();
     this.drawMode = true;
     this.lastSeen = millis();
     this.prevX = 0;
     this.prevY = 0;
+    this.prevLeftX = 0;
+    this.prevLeftY = 0;
+    this.prevRightX = 0;
+    this.prevRightY = 0;
     this.toggleCooldown = 60;
+    this.mainHand = null;
+  }
+
+  assignUniqueColor() {
+    if (usedColors.length >= blockColors.length) {
+      usedColors = [];
+      colorIndex = 0;
+    }
+
+    while (usedColors.includes(blockColors[colorIndex])) {
+      colorIndex = (colorIndex + 1) % blockColors.length;
+    }
+
+    let assignedColor = blockColors[colorIndex];
+    usedColors.push(assignedColor);
+    colorIndex = (colorIndex + 1) % blockColors.length;
+
+    return assignedColor;
   }
 }
 
@@ -314,6 +323,16 @@ function smoothBodyPoints(body) {
       smoothedKeypoints[body.id][i].y = lerp(smoothedKeypoints[body.id][i].y, body.keypoints[i].y, smoothingFactor);
     }
   }
+}
+
+function isHandInFist(wrist, thumb, pinkie, index) {
+  let threshold = 90; // Distance threshold to consider the hand as a fist
+
+  let thumbDist = dist(wrist.x, wrist.y, thumb.x, thumb.y);
+  let pinkieDist = dist(wrist.x, wrist.y, pinkie.x, pinkie.y);
+  let indexDist = dist(wrist.x, wrist.y, index.x, index.y);
+
+  return thumbDist < threshold && pinkieDist < threshold && indexDist < threshold;
 }
 
 function findPersonById(id) {

@@ -49,7 +49,7 @@ function setup() {
 
 function loadBlocks() {
   let savedData = localStorage.getItem("savedBlocks");
-  if (savedData) {
+  if (savedData != null) {
     let blockData = JSON.parse(savedData);
     blocks = blockData.map(b => new Block(b.x, b.y, color(b.color), b.hp));
   }

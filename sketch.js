@@ -1,19 +1,20 @@
 let blockColors;
 let blocks = [];
 let people = [];
-let maxPeople = 15;  // Maximum number of people to track
+let maxPeople = 4;  // Maximum number of people to track
 
 let camFeed;
 let video;
 let bodies = [];
 
 let smoothingFactor = 0.15;
-let smoothedKeypoints = {};
+let pCooldownMax = 120;
+
 let blockSize = 8;
 let maxHP = 8;  // Blocks start at full HP and fade out
 let blockInvulTime = 10;  // Invulnerability time after being hit (frames)
 
-let lastMouse = true;
+let mouseDrawMode = true;
 
 let usedColors = [];
 let colorIndex = 0;
@@ -25,7 +26,7 @@ function preload() {
 function setup() {
   createCanvas(windowWidth, windowHeight);
   background(0);
-
+  //map canvas to video resolution.
   video = createCapture(VIDEO);
   video.size(width, height);
   video.hide();
@@ -42,9 +43,13 @@ function setup() {
 
   shuffle(blockColors, true);
 
-  window.addEventListener("beforeunload", saveBlocks);
+  //window.addEventListener("beforeunload", saveBlocks);
 
-  loadBlocks();
+  //loadBlocks();
+
+  frameRate(60);
+
+  noCursor();
 }
 
 function loadBlocks() {
@@ -61,33 +66,32 @@ function draw() {
   // Draw stored blocks
   for (let b of blocks) {
     b.display();
-    b.tempInvul = min(0, b.tempInvul - 1);
+    b.tempInvul = max(0, b.tempInvul - 1);
   }
 
-  if (bodies.length > 0) {
+  if (people.length > 0) {
     drawBodies();
   }
 
   if (frameCount % 300 === 0) { // Save every 5 seconds (assuming 60 FPS)
-    saveBlocks();
+    //saveBlocks();
   }
+
+  //drawCursor(mouseX, mouseY, mouseDrawMode, color(255, 0, 0));
 }
 
 function drawBodies() {
-  for (let body of bodies) {
-    let person = findPersonById(body.id);
-    //console.log(person);
+  for (let person of people) {
+
     person.toggleCooldown = max(0, person.toggleCooldown - 1);
 
     let col = person.color;
     stroke(col);
     strokeWeight(5);
 
-    smoothBodyPoints(body);
-
-    let head = smoothedKeypoints[body.id][0];  // Head position
-    let leftWrist = smoothedKeypoints[body.id][9];
-    let rightWrist = smoothedKeypoints[body.id][10];
+    let head = person.keypoints[0];  // Head position
+    let leftWrist = person.keypoints[9];
+    let rightWrist = person.keypoints[10];
 
     fill(col);
 
@@ -96,31 +100,35 @@ function drawBodies() {
     if (leftWrist.y < head.y && rightWrist.y < head.y) {
       // If both are above, keep the previous main hand or choose the faster one
       person.mainHand = 'right'; // Default to right hand
-    } else if (leftWrist.y < head.y) {
+    } else if (leftWrist.y < head.y && person.mainHand === 'right') {
       person.mainHand = 'left';
-    } else if (rightWrist.y < head.y) {
+      person.color = person.assignUniqueColor();
+      person.toggleCooldown = pCooldownMax;
+    } else if (rightWrist.y < head.y && person.mainHand === 'left') {
       person.mainHand = 'right';
+      person.color = person.assignUniqueColor();
+      person.toggleCooldown = pCooldownMax;
     }
-
-    let hand = person.mainHand === 'left' ? leftWrist : rightWrist;
    
     if (person.mainHand === 'right' && person.toggleCooldown <= 0) {
       // Check if the left hand is by the right shoulder
-      if (dist(leftWrist.x, leftWrist.y, smoothedKeypoints[body.id][6].x, smoothedKeypoints[body.id][6].y) < 80) { 
+      if (dist(leftWrist.x, leftWrist.y, person.keypoints[6].x, person.keypoints[6].y) < 120) { 
         person.drawMode = !person.drawMode;
-        person.toggleCooldown = 60; // Prevents rapid toggling
+        person.toggleCooldown = pCooldownMax;
       }
     }
     else if (person.mainHand === 'left' && person.toggleCooldown <= 0) {
       // Check if the right hand is by the left shoulder
-      if (dist(smoothedKeypoints[body.id][10].x, smoothedKeypoints[body.id][10].y, smoothedKeypoints[body.id][5].x, smoothedKeypoints[body.id][5].y) < 80) { 
+      if (dist(rightWrist.x, rightWrist.y, person.keypoints[5].x, person.keypoints[5].y) < 120) { 
         person.drawMode = !person.drawMode;
-        person.toggleCooldown = 60; // Prevents rapid toggling
+        person.toggleCooldown = pCooldownMax;
       }
     }
 
+    let hand = person.mainHand === 'left' ? leftWrist : rightWrist;
+
     // Draw stick figure at hand position
-    drawHandStickFigure(hand.x, hand.y, person.drawMode, col);
+    drawCursor(hand.x, hand.y, person.drawMode, col, person.mainHand);
 
     let handSpeed = dist(hand.x, hand.y, person.prevX, person.prevY);
     let steadyThreshold = 2.0; // Lowered threshold for more responsive painting
@@ -129,16 +137,12 @@ function drawBodies() {
       if (person.drawMode) {
         sprayBlocks(hand.x, hand.y, col);  // Create spray effect at hand position
       } else {
-        eraseInsideHead(hand.x, hand.y, 40);  // Gradually erase blocks at hand position
+        gradualErase(hand.x, hand.y, 40);  // Gradually erase blocks at hand position
       }
     }
 
     person.prevX = hand.x;
     person.prevY = hand.y;
-    person.prevLeftX = leftWrist.x;
-    person.prevLeftY = leftWrist.y;
-    person.prevRightX = rightWrist.x;
-    person.prevRightY = rightWrist.y;
   }
 }
 
@@ -171,7 +175,7 @@ function sprayBlocks(x, y, baseColor) {
 }
 
 // **Gradually erase blocks inside the head area**
-function eraseInsideHead(x, y, radius) {
+function gradualErase(x, y, radius) {
   for (let i = blocks.length - 1; i >= 0; i--) {
     let b = blocks[i];
     let d = dist(b.x, b.y, x, y);
@@ -189,30 +193,60 @@ function eraseInsideHead(x, y, radius) {
   }
 }
 
-function drawHandStickFigure(x, y, isDrawMode, baseColor) {
+function drawCursor(x, y, isDrawMode, baseColor, mainHand) {
   push();
   strokeWeight(5);
   stroke(200);
   fill(isDrawMode ? baseColor : color(red(baseColor), green(baseColor), blue(baseColor), 85));  // Transparent in erase mode
+  let offset = -76;
 
+  if (mainHand === 'left') {
+    offset = 0;
+  }
   // Head
-  ellipse(x, y, 60, 60);
+  ellipse(x + 38 + offset, y - 50, 60, 60);
 
   // Body
-  line(x, y + 30, x, y + 80);
+  line(x + 38 + offset, y - 20, x + 38 + offset, y + 30);
 
-  line(x - 38, y + 60, x, y + 40); //left arm
-  line(x, y + 40, x + 38, y + 60); //right arm
+  line(x + 38 + offset, y - 10, x + offset, y + 10); //right arm
+  line(x + 38 + offset, y - 10, x + 76 + offset, y + 10); //left arm
 
-  line(x, y + 80, x - 14, y + 120); //left leg
-  line(x, y + 80, x + 14, y + 120); //right leg
+  line(x + 38 + offset, y + 30, x + 24 + offset, y + 70); //left leg
+  line(x + 38 + offset, y + 30, x + 52 + offset, y + 70); //right leg
 
-  // Arms and Legs (change Position between modes)
+  // Change Between an Eraser and Spray Paint
   if (isDrawMode) {
-    line(x -53, y + 15, x - 20, y + 80); // Representing a pencil/pen/brush
-    line(x - 20, y + 80, x - 25, y + 95); // Tip of the brush/pen
-  } else {
-    rect(x - 53, y + 35 , 40, 20); // Representing a giant eraser
+    fill(red(baseColor), green(baseColor), blue(baseColor), 85);
+    ellipse(x, y, 40);
+    fill(baseColor);
+    ellipse(x, y + 35, 15);
+    beginShape();
+    vertex(x - 7.5, y + 35);
+    vertex(x - 7.5, y + 10);
+    vertex(x + 7.5, y + 10);
+    vertex(x + 7.5, y + 35);
+    endShape();
+    ellipse(x, y + 10, 15);
+    fill(0);
+    rect(x - 2.5, y + 7, 5, 5);
+    fill(baseColor);
+  } 
+    
+  else {
+    fill(red(baseColor), green(baseColor), blue(baseColor), 85);
+    rect(x - 12.5, y - 20, 25, 50); // Representing a giant eraser
+    beginShape();
+    vertex(x - 12.5, y - 20);
+    vertex(x - 14, y - 15);
+    vertex(x - 14, y + 25);
+    vertex(x - 12.5, y + 25);
+    vertex(x + 12.5, y + 25);
+    vertex(x + 11, y + 25);
+    vertex(x - 14, y + 25);
+    vertex(x- 14, y - 20);
+    //vertex(x - 20, y - 10);
+    endShape();
   }
 
   pop();
@@ -220,25 +254,51 @@ function drawHandStickFigure(x, y, isDrawMode, baseColor) {
   push();
   strokeWeight(2);
   stroke(baseColor);
-  fill(isDrawMode ? baseColor : color(red(baseColor), green(baseColor), blue(baseColor), 85));  // Transparent in erase mode
+  fill(baseColor);  // Transparent in erase mode
 
   // Head
-  ellipse(x, y, 60, 60);
+  ellipse(x + 38 + offset, y - 50, 60, 60);
 
   // Body
-  line(x, y + 30, x, y + 80);
+  line(x + 38 + offset, y - 20, x + 38 + offset, y + 30);
 
-  line(x - 38, y + 60, x, y + 40); //left arm
-  line(x, y + 40, x + 38, y + 60); //right arm
+  line(x + 38 + offset, y - 10, x + offset, y + 10); //right arm
+  line(x + 38 + offset, y - 10, x + 76 + offset, y + 10); //left arm
 
-  line(x, y + 80, x - 14, y + 120); //left leg
-  line(x, y + 80, x + 14, y + 120); //right leg
+  line(x + 38 + offset, y + 30, x + 24 + offset, y + 70); //left leg
+  line(x + 38 + offset, y + 30, x + 52 + offset, y + 70); //right leg
 
   if (isDrawMode) {
-    line(x -53, y + 15, x - 20, y + 80); // Representing a pencil/pen/brush
-    line(x - 20, y + 80, x - 25, y + 95); // Tip of the brush/pen
-  } else {
-    rect(x - 53, y + 35 , 40, 20); // Representing a giant eraser
+    fill(red(baseColor), green(baseColor), blue(baseColor), 85);
+    ellipse(x, y, 40);
+    fill(baseColor);
+    ellipse(x, y + 35, 15);
+    beginShape();
+    vertex(x - 7.5, y + 35);
+    vertex(x - 7.5, y + 10);
+    vertex(x + 7.5, y + 10);
+    vertex(x + 7.5, y + 35);
+    endShape();
+    ellipse(x, y + 10, 15);
+    fill(0);
+    rect(x - 2.5, y + 7, 5, 5);
+    fill(baseColor);
+  } 
+  
+  else {
+    fill(red(baseColor), green(baseColor), blue(baseColor), 85);
+    rect(x - 12.5, y - 20, 25, 50); // Representing a giant eraser
+    beginShape();
+    vertex(x - 12.5, y - 20);
+    vertex(x - 14, y - 15);
+    vertex(x - 14, y + 25);
+    vertex(x - 12.5, y + 25);
+    vertex(x + 12.5, y + 25);
+    vertex(x + 11, y + 25);
+    vertex(x - 14, y + 25);
+    vertex(x- 14, y - 20);
+    //vertex(x - 20, y - 10);
+    endShape();
   }
 
   pop();
@@ -251,26 +311,34 @@ function saveBlocks() {
 
 function bodyCheck(results) {
   bodies = results;
-  let trackedIds = bodies.map(body => body.id);
+  
+  for(let i = people.length; people.length < bodies.length; i = people.length) {
+    people.push(new Person(bodies[i]));
+  }
 
-  // Update last seen time for tracked people
   for (let person of people) {
-    if (trackedIds.includes(person.id)) {
-      person.lastSeen = millis();
+    for (let body of bodies) {
+      if (person.id === body.id) {
+        person.updateLoc(body);
+      }
     }
   }
 
   // Remove people who haven't been seen for a longer duration
   people = people.filter(person => millis() - person.lastSeen < 8000); // Increased timeout to 8 seconds
+}
 
-  // Add new people
-  for (let body of bodies) {
-    //console.log(body);
-    if (!findPersonById(body.id)) {
-      people.push(new Person(body.id));
-    }
+function findPersonById(id) {
+  return people.find(person => person.id === id);
+}
+
+function mouseClicked() {
+  if (mouseButton === LEFT) {
+    mouseDrawMode = !mouseDrawMode;
   }
-  console.log(people);
+  for (let person of people) {
+    person.drawMode = !person.drawMode;
+  }
 }
 
 class Block {
@@ -289,9 +357,10 @@ class Block {
   }
 }
 
+//follow smoothedBody function to transfer bodyKeypoint coordinates to the person object/people array.
 class Person {
-  constructor(bodyID) {
-    this.id = bodyID;
+  constructor(body) {
+    this.id = body.id;
     this.color = this.assignUniqueColor();
     this.drawMode = true;
     this.lastSeen = millis();
@@ -299,6 +368,16 @@ class Person {
     this.prevY = 0;
     this.toggleCooldown = 120;
     this.mainHand = null;
+    this.keypoints = body.keypoints.map(kp => ({ x: kp.x, y: kp.y }));
+  }
+
+  // Smooth keypoints using EMA (low-pass filter)
+  updateLoc(body) {
+    for (let i = 0; i < body.keypoints.length; i++) {
+      this.keypoints[i].x = lerp(this.keypoints[i].x, body.keypoints[i].x, smoothingFactor);
+      this.keypoints[i].y = lerp(this.keypoints[i].y, body.keypoints[i].y, smoothingFactor);
+    }
+    this.lastSeen = millis();
   }
 
   assignUniqueColor() {
@@ -317,32 +396,4 @@ class Person {
 
     return assignedColor;
   }
-}
-
-// Smooth keypoints using EMA (low-pass filter)
-function smoothBodyPoints(body) {
-  if (!smoothedKeypoints[body.id]) {
-    smoothedKeypoints[body.id] = body.keypoints.map(kp => ({ x: kp.x, y: kp.y }));
-  } else {
-    for (let i = 0; i < body.keypoints.length; i++) {
-      smoothedKeypoints[body.id][i].x = lerp(smoothedKeypoints[body.id][i].x, body.keypoints[i].x, smoothingFactor);
-      smoothedKeypoints[body.id][i].y = lerp(smoothedKeypoints[body.id][i].y, body.keypoints[i].y, smoothingFactor);
-    }
-  }
-}
-
-function isFist(wrist, thumb, index, pinkie) {
-  let thumbDist = dist(wrist.x, wrist.y, thumb.x, thumb.y);
-  let indexDist = dist(wrist.x, wrist.y, index.x, index.y);
-  let middleDist = dist(thumb.x, thumb.y, index.x, index.y);
-  let ringDist = dist(thumb.x, thumb.y, pinkie.x, pinkie.y);
-  let pinkieDist = dist(wrist.x, wrist.y, pinkie.x, pinkie.y);
-
-  let fistThreshold = 80; // Adjust as needed
-  
-  return (thumbDist <= fistThreshold && indexDist <= fistThreshold && middleDist <= fistThreshold && ringDist <= fistThreshold && pinkieDist <= fistThreshold);
-}
-
-function findPersonById(id) {
-  return people.find(person => person.id === id);
 }

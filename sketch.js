@@ -20,6 +20,15 @@ let mouseDrawMode = true;
 let usedColors = [];
 let colorIndex = 0;
 
+let scrollText = "If you want to draw with your other hand raise it above your head.";
+let altText = ["I wonder what happens when you raise both hands at the same time?",
+              "Feel free to paint the canvas.", 
+              "Did you find out how to change colors?", 
+              "Can you erase things yet?"];
+let displayText;
+let showAlt = false;
+let altTimner = 0;
+
 function preload() {
   camFeed = ml5.bodyPose("MoveNet", { flipped: true });
 }
@@ -49,10 +58,6 @@ function setup() {
 
   shuffle(blockColors, true);
 
-  //window.addEventListener("beforeunload", saveBlocks);
-
-  //loadBlocks();
-
   frameRate(60);
 
   noCursor();
@@ -68,12 +73,6 @@ function setup() {
 
 function draw() {
   background(0);
-  /* DRAWS WHAT WEB CAM IS SEEING
-  push();
-  translate(width,0);
-  scale(-1, 1);
-  image(video, 0, 0, width, height);
-  pop(); */
 
   // Draw stored blocks
   for (let b of blocks) {
@@ -81,10 +80,25 @@ function draw() {
     b.tempInvul = max(0, b.tempInvul - 1);
   }
 
+  //draws artists
   if (people.length > 0) {
     drawBodies();
   }
 
+  push();
+  fill(255, 255, 255, 200);
+  textSize(38);
+  textAlign(CENTER);
+  if (!showAlt) { text(scrollText, 0, 30, width, 50);}
+  else {text(displayText, 0, 30, width, 50);}
+  pop();
+
+  altTimner = max(0, altTimner - 1);
+  if (altTimner === 0) {
+    showAlt = false;
+  }
+  //
+  //SAVE PERODIACLLY
  /* if (frameCount % 300 === 0) { // Save every 5 seconds (assuming 60 FPS)
     saveBlocks();
   } */
@@ -104,11 +118,17 @@ function drawBodies() {
       person.color = person.assignUniqueColor();
       console.log("Artist #" + person.id + " has changed colors.");
       person.toggleCooldown = pCooldownMax;
+      altTimner = 20;
+      showAlt = true;
+      displayText = random(altText);
     } else if (person.rightWrist.y < person.head.y - headOffset && person.mainHand === 'left' && person.toggleCooldown == 0) {
       person.mainHand = 'right';
       person.color = person.assignUniqueColor();
       console.log("Artist #" + person.id + " has changed colors.");
       person.toggleCooldown = pCooldownMax;
+      altTimner = 20;
+      showAlt = true;
+      displayText = random(altText);
     }
     else if (person.leftWrist.y < person.head.y && person.rightWrist.y < person.head.y && person.toggleCooldown == 0) {
       // Check if the left hand is by the right shoulder
@@ -335,9 +355,11 @@ function mouseClicked() {
   if (mouseButton === LEFT) {
     mouseDrawMode = !mouseDrawMode;
   }
-  for (let person of people) {
-    person.drawMode = !person.drawMode;
-  }
+  sprayBlocks(mouseX, mouseY, color(random(blockColors)));
+
+  altTimner = 20;
+  showAlt = true;
+  displayText = random(altText);
 }
 
 class Block {

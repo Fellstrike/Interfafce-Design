@@ -137,23 +137,23 @@ function drawBodies() {
     else if (person.leftWrist.y < person.head.y - person.headOffset && person.mainHand === 'right' && person.toggleCooldown == 0) {
       //check if left hand is raised.
       person.mainHand = 'left';
+      textColor = person.color;
       person.color = person.assignUniqueColor();
       console.log("Artist #" + person.id + " has changed colors.");
       person.toggleCooldown = pCooldownMax;
       altTimer = 20;
       showAlt = true;
-      textColor = person.color;
       displayText = random(altText);
     } else if (person.rightWrist.y < person.head.y - person.headOffset && person.mainHand === 'left' && person.toggleCooldown == 0) {
       //check if right hand is raised
       person.mainHand = 'right';
+      textColor = person.color;
       person.color = person.assignUniqueColor();
       console.log("Artist #" + person.id + " has changed colors.");
       person.toggleCooldown = pCooldownMax;
       altTimer = 20;
       showAlt = true;
       displayText = random(altText);
-      textColor = person.color;
     }
 
     let hand = person.mainHand === 'left' ? person.leftWrist : person.rightWrist;

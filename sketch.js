@@ -11,8 +11,10 @@ let smoothingFactor = 0.15;
 let pCooldownMax = 180;
 let wristDistance = 260;
 
+let screenOffset = 50;
+
 let blockSize = 8;
-let maxHP = 8;  // Blocks start at full HP and fade out
+let maxHP = 6;  // Blocks start at full HP and fade out
 let blockInvulTime = 10;  // Invulnerability time after being hit (frames)
 
 let mouseDrawMode = true;
@@ -22,12 +24,14 @@ let colorIndex = 0;
 
 let scrollText = "If you want to draw with your other hand raise it above your head.";
 let altText = ["I wonder what happens when you raise both hands at the same time?",
-              "Feel free to paint the canvas.", 
-              "Did you find out how to change colors?", 
-              "Can you erase things yet?"];
+              "I bet you could paint the whole world.", 
+              "Double what you just did to discover more.", 
+              "Removing color would be kind of neat, eh?"];
 let displayText;
 let showAlt = false;
-let altTimner = 0;
+let altTimer = 0;
+
+let textColor;
 
 function preload() {
   camFeed = ml5.bodyPose("MoveNet", { flipped: true });
@@ -40,20 +44,22 @@ function setup() {
   video.size(windowWidth, windowHeight);
   video.hide();
 
-  let canvasWidth = video.width * 0.95;
-  let canvasHeight = video.height * 0.95;
+  let canvasWidth = video.width * 0.975;
+  let canvasHeight = video.height * 0.975;
 
   createCanvas(canvasWidth, canvasHeight);
   background(0);
 
   camFeed.detectStart(video, bodyCheck);
 
+  textColor = color(255, 255, 255, 200);
+
   blockColors = [
-    color(255, 0, 0), color(0, 255, 0), color(0, 0, 255),
-    color(255, 255, 0), color(255, 0, 255), color(0, 255, 255),
-    color(128, 0, 255), color(0, 128, 255), color(128, 128, 255),
-    color(255, 128, 0), color(255, 0, 128), color(255, 128, 128),
-    color(0, 255, 128), color(128, 255, 0), color(128, 255, 128)
+    color(255, 0, 0), color(252, 149, 129), color(255, 106, 0),
+    color(232 , 143, 0), color(255, 255, 0), color(195, 255, 0),
+    color(0, 200, 0), color(0,  255, 174), color(0, 204, 255),
+    color(0, 0, 255), color(174, 0, 255), color(255, 0, 255),
+    color(255, 0, 162), color(147, 120, 255), color(0, 90, 138), color(255, 191, 248)
   ];
 
   shuffle(blockColors, true);
@@ -83,57 +89,71 @@ function draw() {
   //draws artists
   if (people.length > 0) {
     drawBodies();
+    /*if(people[0].head.y >= height - (screenOffset)) {
+      noLoop();
+     }
+     else {
+      console.log("Head Y value: " + people[0].head.y);
+     }*/
   }
 
   push();
-  fill(255, 255, 255, 200);
+  fill(textColor);
   textSize(38);
   textAlign(CENTER);
   if (!showAlt) { text(scrollText, 0, 30, width, 50);}
   else {text(displayText, 0, 30, width, 50);}
   pop();
 
-  altTimner = max(0, altTimner - 1);
-  if (altTimner === 0) {
+  altTimer = max(0, altTimer - 1);
+  if (altTimer === 0) {
     showAlt = false;
+    textColor = color(255, 255, 255, 200);
   }
   //
   //SAVE PERODIACLLY
  /* if (frameCount % 300 === 0) { // Save every 5 seconds (assuming 60 FPS)
     saveBlocks();
   } */
+
 }
 
 function drawBodies() {
-  let headOffset = 20;
-
   for (let person of people) {
 
     person.toggleCooldown = max(0, person.toggleCooldown - 1);
 
-    // Determine main hand based on hand lifted above head
-
-    if (person.leftWrist.y < person.head.y - headOffset && person.mainHand === 'right' && person.toggleCooldown == 0) {
+    if (person.leftWrist.y < person.head.y - person.headOffset && person.rightWrist.y < person.head.y - person.headOffset 
+      && person.toggleCooldown == 0) {
+      // Check if both hands are raised
+        person.drawMode = !person.drawMode;
+        person.toggleCooldown = pCooldownMax;
+        console.log("Artist #" + person.id + " has changed modes.");
+        altTimer = 40;
+        showAlt = true;
+        textColor = person.color;
+        displayText = altText[3];
+    }
+    else if (person.leftWrist.y < person.head.y - person.headOffset && person.mainHand === 'right' && person.toggleCooldown == 0) {
+      //check if left hand is raised.
       person.mainHand = 'left';
       person.color = person.assignUniqueColor();
       console.log("Artist #" + person.id + " has changed colors.");
       person.toggleCooldown = pCooldownMax;
-      altTimner = 20;
+      altTimer = 20;
       showAlt = true;
+      textColor = person.color;
       displayText = random(altText);
-    } else if (person.rightWrist.y < person.head.y - headOffset && person.mainHand === 'left' && person.toggleCooldown == 0) {
+    } else if (person.rightWrist.y < person.head.y - person.headOffset && person.mainHand === 'left' && person.toggleCooldown == 0) {
+      //check if right hand is raised
       person.mainHand = 'right';
       person.color = person.assignUniqueColor();
       console.log("Artist #" + person.id + " has changed colors.");
       person.toggleCooldown = pCooldownMax;
-      altTimner = 20;
+      altTimer = 20;
       showAlt = true;
       displayText = random(altText);
-    }
-    else if (person.leftWrist.y < person.head.y && person.rightWrist.y < person.head.y && person.toggleCooldown == 0) {
-      // Check if the left hand is by the right shoulder
-        person.drawMode = !person.drawMode;
-        person.toggleCooldown = pCooldownMax;
+      textColor = person.color;
     }
 
     let hand = person.mainHand === 'left' ? person.leftWrist : person.rightWrist;
@@ -218,6 +238,9 @@ function drawCursor(person) {
     x = person.leftWrist.x;
     y = person.leftWrist.y;
   }
+
+  y -= screenOffset;
+
   //Label
   textAlign(CENTER);
   textSize(min(width, height) * 0.03);
@@ -340,24 +363,26 @@ function bodyCheck(results) {
     for (let body of bodies) {
       if (people[c].id === body.id || dist(people[c].head.x, people[c].head.y, body.keypoints[0].x, body.keypoints[0].y) < 10) {
         people[c].updateLoc(body);
-        //if (people[c].id === people[c -1].id)
+        let tempOffset = (height - people[c].head.y) / 10;
+        if (tempOffset > screenOffset) {screenOffset = tempOffset;}
       }
     }
   }
 
-  console.log(people.length);
+  //console.log(people.length);
 
   // Remove people who haven't been seen for a longer duration
   people = people.filter(person => millis() - person.lastSeen < 8000); // Increased timeout to 8 seconds
 }
 
+//Debug purposes only
 function mouseClicked() {
   if (mouseButton === LEFT) {
     mouseDrawMode = !mouseDrawMode;
   }
   sprayBlocks(mouseX, mouseY, color(random(blockColors)));
 
-  altTimner = 20;
+  altTimer = 20;
   showAlt = true;
   displayText = random(altText);
 }
@@ -378,7 +403,7 @@ class Block {
   }
 }
 
-//follow smoothedBody function to transfer bodyKeypoint coordinates to the person object/people array.
+//Need to put the code to draw the person in here instead of the main code.
 class Person {
   constructor(body) {
     this.id = body.id;
@@ -392,6 +417,7 @@ class Person {
     this.head = body.keypoints[0];
     this.leftWrist = body.keypoints[9];
     this.rightWrist = body.keypoints[10];
+    this.headOffset = (height - this.head.y) / 25;
   }
 
   // Smooth keypoints using EMA (low-pass filter)
@@ -403,6 +429,7 @@ class Person {
     this.rightWrist.x = lerp(this.rightWrist.x, body.keypoints[10].x, smoothingFactor);
     this.rightWrist.y = lerp(this.rightWrist.y, body.keypoints[10].y, smoothingFactor);
     this.lastSeen = millis();
+    this.headOffset = (height - this.head.y) / 25;
   }
 
   assignUniqueColor() {

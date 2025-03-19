@@ -1,7 +1,7 @@
 let blockColors;
 let blocks = [];
 let people = [];
-let maxPeople = 4;  // Maximum number of people to track
+let maxPeople = 8;  // Maximum number of people to track
 
 let camFeed;
 let video;
@@ -11,6 +11,7 @@ let smoothingFactor = 0.15;
 let pCooldownMax = 180;
 let wristDistance = 260;
 
+let textTime = 80;
 let screenOffset = 50;
 
 let blockSize = 8;
@@ -129,7 +130,7 @@ function drawBodies() {
         person.drawMode = !person.drawMode;
         person.toggleCooldown = pCooldownMax;
         console.log("Artist #" + person.id + " has changed modes.");
-        altTimer = 40;
+        altTimer = textTime;
         showAlt = true;
         textColor = person.color;
         displayText = altText[3];
@@ -141,7 +142,7 @@ function drawBodies() {
       person.color = person.assignUniqueColor();
       console.log("Artist #" + person.id + " has changed colors.");
       person.toggleCooldown = pCooldownMax;
-      altTimer = 20;
+      altTimer = textTime;
       showAlt = true;
       displayText = random(altText);
     } else if (person.rightWrist.y < person.head.y - person.headOffset && person.mainHand === 'left' && person.toggleCooldown == 0) {
@@ -151,7 +152,7 @@ function drawBodies() {
       person.color = person.assignUniqueColor();
       console.log("Artist #" + person.id + " has changed colors.");
       person.toggleCooldown = pCooldownMax;
-      altTimer = 20;
+      altTimer = textTime;
       showAlt = true;
       displayText = random(altText);
     }

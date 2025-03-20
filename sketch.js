@@ -34,6 +34,18 @@ let altTimer = 0;
 
 let textColor;
 
+let osc;
+let bAmp;
+let bFreq;
+
+let activeOscillators = [];
+let maxOscillators = 16; // Limit the number of simultaneous oscillators to prevent audio overload
+let lastPlayedBlock = null;
+let notePlaying = false;
+let noteTimeout;
+
+let musicScanner;
+
 function preload() {
   camFeed = ml5.bodyPose("MoveNet", { flipped: true });
 }
@@ -50,6 +62,23 @@ function setup() {
 
   createCanvas(canvasWidth, canvasHeight);
   background(0);
+
+  musicScanner = {
+    x: 0,            // Current x position of scanner
+    y: 0,            // Current y position of scanner
+    height: 50,      // Height of the scanner line
+    speed: 4,        // How fast the scanner moves (pixels per frame)
+    playedBlocks: new Set(), // Track which blocks have been played in the current scan
+    isPlaying: false,  // Whether the scanner is currently active
+    playDelay: 90,     // Frames to wait between scans (1 second at 60fps)
+    delayCounter: 0,   // Counter for the delay
+    lastBlockTime: 0,  // Time when the last block was played
+    minTimeBetweenNotes: 100, // Minimum time between notes in ms
+    visualizer: {
+      width: 3,      // Width of the scanner line
+      color: color(255, 255, 255, 190)  // Color of the scanner line
+    }
+  };
 
   camFeed.detectStart(video, bodyCheck);
 
@@ -68,6 +97,16 @@ function setup() {
   frameRate(60);
 
   noCursor();
+
+  osc = new p5.Oscillator();
+
+  setupMusicScanner();
+}
+
+function setupMusicScanner() {
+  musicScanner.isPlaying = true;
+  // Set scanning height to something reasonable based on canvas size
+  musicScanner.height = height / 8; // Divide canvas into 6 scanning rows
 }
 
 /*function loadBlocks() {
@@ -80,6 +119,8 @@ function setup() {
 
 function draw() {
   background(0);
+
+  updateMusicScanner();
 
   // Draw stored blocks
   for (let b of blocks) {
@@ -117,6 +158,152 @@ function draw() {
     saveBlocks();
   } */
 
+}
+
+function updateMusicScanner() {
+  if (!musicScanner.isPlaying) return;
+  
+  // If we're in delay mode between full scans
+  if (musicScanner.delayCounter > 0) {
+    musicScanner.delayCounter--;
+    return;
+  }
+  
+  // Draw the scanner line and region
+  push();
+  // Draw scanning region
+  noFill();
+  stroke(musicScanner.visualizer.color);
+  strokeWeight(1);
+  rect(0, musicScanner.y, width, musicScanner.height);
+  
+  // Draw vertical scan line
+  stroke(musicScanner.visualizer.color);
+  strokeWeight(musicScanner.visualizer.width);
+  line(musicScanner.x, musicScanner.y, musicScanner.x, musicScanner.y + musicScanner.height);
+  pop();
+  
+  // Check for blocks at current scanner position
+  let currentTime = millis();
+  let foundBlocks = blocks.filter(block => {
+    // Check if block is within the scanner line and current scanning region
+    return (block.x <= musicScanner.x && 
+            block.x + blockSize > musicScanner.x &&
+            block.y >= musicScanner.y &&
+            block.y < musicScanner.y + musicScanner.height &&
+            !musicScanner.playedBlocks.has(`${block.x},${block.y}`));
+  });
+  
+  // Sort blocks by y position (top to bottom) for musical ordering
+  foundBlocks.sort((a, b) => a.y - b.y);
+  
+  // Play the blocks if enough time has passed since the last note
+  if (foundBlocks.length > 0 && currentTime - musicScanner.lastBlockTime >= musicScanner.minTimeBetweenNotes) {
+    // Play the blocks
+    for (let i = 0; i < min(3, foundBlocks.length); i++) { // Limit to 3 notes at once
+      let block = foundBlocks[i];
+      playBlockNote(block, musicScanner.y, musicScanner.height);
+      musicScanner.playedBlocks.add(`${block.x},${block.y}`);
+    }
+    musicScanner.lastBlockTime = currentTime;
+  }
+  
+  // Move the scanner horizontally
+  musicScanner.x += musicScanner.speed;
+  
+  // If we've reached the end of the row
+  if (musicScanner.x >= width) {
+    // Reset x position and move to next row
+    musicScanner.x = 0;
+    musicScanner.y += musicScanner.height;
+    
+    // If we've scanned the entire canvas
+    if (musicScanner.y >= height) {
+      // Reset to top
+      musicScanner.y = 0;
+      // Clear the played blocks set for a fresh scan
+      musicScanner.playedBlocks.clear();
+      // Start the delay counter before next full scan
+      musicScanner.delayCounter = musicScanner.playDelay;
+    }
+  }
+}
+
+// Improved function to play notes based on block colors
+function playBlockNote(block, scanY, scanHeight) {
+  let osc = new p5.Oscillator();
+  
+  // Map color to musical properties
+  
+  // Use red for pitch - map to musical scale for better sound
+  // Pentatonic scale for more harmonious sounds
+  let pentatonicScale = [261.63, 293.66, 329.63, 369.99, 392.00, 440.00, 493.88, 523.25]; // C major pentatonic (C, D, E, G, A)
+  let noteIndex = floor(map(red(block.color), 0, 255, 0, pentatonicScale.length));
+  let frequency = pentatonicScale[noteIndex];
+  
+  // Shift octave based on vertical position in the current scanning region
+  // This makes higher blocks play higher notes within each region
+  let relativeY = (block.y - scanY) / scanHeight;
+  let octave = floor(map(relativeY, 1, 0, -2, 1)); // Lower in region = lower octave
+  
+  frequency *= pow(2, octave);
+  
+  // Green controls volume
+  let amplitude = map(green(block.color), 0, 255, 0.05, 0.25);
+  
+  // Blue controls the wave type
+  let waveTypes = ['sine', 'triangle', 'sawtooth', 'square'];
+  let waveIndex = constrain(floor(map(blue(block.color), 0, 255, 0, waveTypes.length)), 0, waveTypes.length - 1);
+  let waveType = waveTypes[waveIndex];
+  
+  // Set oscillator properties
+  osc.setType(waveType);
+  osc.freq(frequency);
+  osc.amp(0);
+  osc.start();
+  
+  // Fade in
+  osc.amp(amplitude, 0.1);
+  
+  // Duration based on block HP
+  let noteDuration = map(block.hp, 1, maxHP, 200, 800); // 0.2 to 0.8 seconds
+  
+  // Highlight the block being played
+  push();
+  stroke(255, 255, 255, 150);
+  strokeWeight(2);
+  noFill();
+  rect(block.x, block.y, blockSize, blockSize);
+  pop();
+  
+  // Fade out and stop
+  setTimeout(() => {
+    osc.amp(0, 0.2);
+    setTimeout(() => {
+      osc.stop();
+    }, 300);
+  }, noteDuration);
+}
+
+// Add a way to toggle the music scanner on/off with the T key
+function keyPressed() {
+  if (key === 'v' || key === 'V') {
+    musicScanner.isPlaying = !musicScanner.isPlaying;
+    if (musicScanner.isPlaying) {
+      // Reset scanner when turning it back on
+      musicScanner.x = 0;
+      musicScanner.playedBlocks.clear();
+      musicScanner.delayCounter = 0;
+    }
+  }
+  else if (key === 't' || key === 'T') {
+    let curALpha = alpha(musicScanner.visualizer.color);
+    if (curALpha === 0) { 
+      musicScanner.visualizer.color.setAlpha(190);
+    } else {
+      musicScanner.visualizer.color.setAlpha(0);
+    }
+  }
 }
 
 function drawBodies() {
@@ -383,9 +570,13 @@ function mouseClicked() {
   }
   sprayBlocks(mouseX, mouseY, color(random(blockColors)));
 
-  altTimer = 20;
+  altTimer = textTime;
   showAlt = true;
   displayText = random(altText);
+
+  if (getAudioContext().state !== 'running') {
+    getAudioContext().resume();
+  }
 }
 
 class Block {
